@@ -1,0 +1,22 @@
+{
+  "name": "ulanzi-obs-ptz-control",
+  "version": "0.1.0",
+  "description": "Ulanzi Deck plugin that drives OBS-PTZ cameras over obs-websocket",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "mawdesign",
+  "engines": { "node": ">=20.12" },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "obs-websocket-js": "^5.0.6",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

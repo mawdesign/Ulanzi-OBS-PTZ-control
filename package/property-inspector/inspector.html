@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="../libs/css/uspi.css">
+  <script src="../libs/js/constants.js"></script>
+  <script src="../libs/js/eventEmitter.js"></script>
+  <script src="../libs/js/timers.js"></script>
+  <script src="../libs/js/utils.js"></script>
+  <script src="../libs/js/ulanziApi.js"></script>
+</head>
+<body>
+  <!-- Placeholder inspector for the event-logging spike. Real fields land with the feature work. -->
+  <div class="uspi-wrapper">
+    <form id="property-inspector">
+      <div class="uspi-item">
+        <div class="uspi-item-label">Note</div>
+        <input type="text" class="uspi-item-value" name="note" value="">
+      </div>
+    </form>
+  </div>
+  <script>
+    // Studio loads this page with ?uuid=&actionid=&key=&port=&address=&controller=&device= ;
+    // connect() with no argument reads them, so one shared inspector serves every action.
+    $UD.connect();
+    $UD.onAdd((message) => Utils.setFormValue(message.param, '#property-inspector'));
+    document.getElementById('property-inspector').addEventListener('change', () => {
+      $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
+    });
+  </script>
+</body>
+</html>

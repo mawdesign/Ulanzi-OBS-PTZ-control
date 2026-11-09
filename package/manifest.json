@@ -1,0 +1,100 @@
+{
+  "Author": "mawdesign",
+  "Name": "OBS PTZ Control",
+  "Description": "Control PTZ cameras through OBS-PTZ from your Ulanzi Deck",
+  "Icon": "resources/plugin.svg",
+  "Version": "0.1.0",
+  "Category": "OBS PTZ Control",
+  "CategoryIcon": "resources/plugin.svg",
+  "Type": "JavaScript",
+  "CodePath": "plugin/app.js",
+  "UUID": "com.ulanzi.ulanzistudio.obsptz",
+  "Actions": [
+    {
+      "Name": "PTZ Move",
+      "Tooltip": "Hold to pan/tilt the camera",
+      "Icon": "resources/move.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "UUID": "com.ulanzi.ulanzistudio.obsptz.move",
+      "SupportedInMultiActions": false,
+      "state": 0,
+      "States": [
+        { "Name": "Normal", "Image": "resources/move.svg" },
+        { "Name": "Disconnected", "Image": "resources/disconnected.svg" }
+      ],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "Name": "PTZ Zoom",
+      "Tooltip": "Hold to zoom the camera in or out",
+      "Icon": "resources/zoom.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "UUID": "com.ulanzi.ulanzistudio.obsptz.zoom",
+      "SupportedInMultiActions": false,
+      "state": 0,
+      "States": [
+        { "Name": "Normal", "Image": "resources/zoom.svg" },
+        { "Name": "Disconnected", "Image": "resources/disconnected.svg" }
+      ],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "Name": "PTZ Preset",
+      "Tooltip": "Recall a camera preset",
+      "Icon": "resources/preset.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "UUID": "com.ulanzi.ulanzistudio.obsptz.preset",
+      "state": 0,
+      "States": [
+        { "Name": "Normal", "Image": "resources/preset.svg" },
+        { "Name": "Disconnected", "Image": "resources/disconnected.svg" }
+      ],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "Name": "PTZ Home",
+      "Tooltip": "Send the camera to its home position",
+      "Icon": "resources/home.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "UUID": "com.ulanzi.ulanzistudio.obsptz.home",
+      "state": 0,
+      "States": [
+        { "Name": "Normal", "Image": "resources/home.svg" },
+        { "Name": "Disconnected", "Image": "resources/disconnected.svg" }
+      ],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "Name": "PTZ Stop",
+      "Tooltip": "Stop all camera movement",
+      "Icon": "resources/stop.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "UUID": "com.ulanzi.ulanzistudio.obsptz.stop",
+      "state": 0,
+      "States": [
+        { "Name": "Normal", "Image": "resources/stop.svg" },
+        { "Name": "Disconnected", "Image": "resources/disconnected.svg" }
+      ],
+      "Controllers": ["Keypad"]
+    },
+    {
+      "Name": "PTZ Zoom Dial",
+      "Tooltip": "Rotate to zoom, press for a configurable action",
+      "Icon": "resources/dial.svg",
+      "PropertyInspectorPath": "property-inspector/inspector.html",
+      "UUID": "com.ulanzi.ulanzistudio.obsptz.dial",
+      "SupportedInMultiActions": false,
+      "state": 0,
+      "States": [
+        { "Name": "Normal", "Image": "resources/dial.svg" },
+        { "Name": "Disconnected", "Image": "resources/disconnected.svg" }
+      ],
+      "Controllers": ["Encoder"],
+      "Encoder": { "layout": "$UA1" }
+    }
+  ],
+  "OS": [
+    { "Platform": "windows", "MinimumVersion": "10" },
+    { "Platform": "mac", "MinimumVersion": "10.11" }
+  ]
+}
