@@ -9,6 +9,7 @@
   "engines": { "node": ">=20.12" },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
     "dev": "node scripts/dev.mjs",
     "test": "node --test test/*.test.js"
   },

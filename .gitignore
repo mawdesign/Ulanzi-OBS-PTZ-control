@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.zip
 .DS_Store
+# bundled by `npm run build`; shipped in the release zip, not tracked
+com.ulanzi.obsptz.ulanziPlugin/plugin/

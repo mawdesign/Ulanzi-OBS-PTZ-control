@@ -1,0 +1,43 @@
+name: Release
+
+# Pushing a version tag (e.g. v1.0.0) builds the plugin and publishes a GitHub Release whose asset is
+# com.ulanzi.obsptz.ulanziPlugin.zip, the shape the Ulanzi Community Store picks up as an update.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+
+      - name: Check tag matches manifest version
+        run: |
+          manifest_version=$(jq -r .Version com.ulanzi.obsptz.ulanziPlugin/manifest.json)
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [ "$manifest_version" != "$tag_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match manifest Version $manifest_version" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run package
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --latest \
+            dist/com.ulanzi.obsptz.ulanziPlugin.zip

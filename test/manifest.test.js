@@ -4,7 +4,7 @@ import { readFile, access } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../package');
+const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../com.ulanzi.obsptz.ulanziPlugin');
 const manifest = JSON.parse(await readFile(path.join(pkg, 'manifest.json'), 'utf8'));
 const exists = (p) => access(path.join(pkg, p)).then(() => true, () => false);
 
@@ -35,7 +35,7 @@ test('the dial action is the only Encoder action', () => {
   assert.deepEqual(enc.map((a) => a.UUID), [`${manifest.UUID}.dial`]);
 });
 
-test('referenced files exist in package/', async () => {
+test('referenced files exist in the plugin folder', async () => {
   const paths = [manifest.Icon, manifest.CategoryIcon];
   for (const a of manifest.Actions) {
     paths.push(a.Icon, a.PropertyInspectorPath, ...a.States.map((s) => s.Image));

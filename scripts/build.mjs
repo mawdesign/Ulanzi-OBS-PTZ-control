@@ -1,20 +1,19 @@
-// Builds dist/com.ulanzi.obsptz.ulanziPlugin/ : static package files + one bundled plugin/app.js.
+// Bundles src/plugin/app.js into the tracked plugin folder as plugin/app.js (gitignored).
+// The plugin folder lives at the repo root because the Ulanzi Community Store requires it there.
 import { build } from 'esbuild';
-import { cp, rm, mkdir } from 'node:fs/promises';
+import { rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 export const PLUGIN_DIR = 'com.ulanzi.obsptz.ulanziPlugin';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const out = path.join(root, 'dist', PLUGIN_DIR);
+const pluginDir = path.join(root, PLUGIN_DIR);
 
-await rm(out, { recursive: true, force: true });
-await mkdir(out, { recursive: true });
-await cp(path.join(root, 'package'), out, { recursive: true });
+await rm(path.join(pluginDir, 'plugin'), { recursive: true, force: true });
 
 await build({
   entryPoints: [path.join(root, 'src/plugin/app.js')],
-  outfile: path.join(out, 'plugin/app.js'),
+  outfile: path.join(pluginDir, 'plugin/app.js'),
   bundle: true,
   platform: 'node',
   target: 'node20',
@@ -28,4 +27,4 @@ await build({
   logLevel: 'info',
 });
 
-console.log(`Built ${path.relative(root, out)}`);
+console.log(`Built ${PLUGIN_DIR}/plugin/app.js`);

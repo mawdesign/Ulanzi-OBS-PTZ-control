@@ -14,8 +14,9 @@ Control PTZ cameras from an Ulanzi D200X (and other Ulanzi Deck devices) through
 ```sh
 npm install
 npm test
-npm run build                       # -> dist/com.ulanzi.obsptz.ulanziPlugin/
-ULANZI_PLUGINS_DIR=/path/to/plugins npm run dev   # symlink into Studio or the SDK simulator
+npm run build                       # bundles com.ulanzi.obsptz.ulanziPlugin/plugin/app.js
+ULANZI_PLUGINS_DIR=/path/to/plugins npm run dev   # symlink the plugin folder into Studio or the SDK simulator
+npm run package                     # dist/com.ulanzi.obsptz.ulanziPlugin.zip (release asset shape)
 ```
 The spike (`src/plugin/app.js`) logs every Studio event; use it to confirm real event behaviour
 (`run` vs `keydown`/`keyup`, `dialrotate` payloads) before feature work.
