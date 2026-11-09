@@ -66,17 +66,29 @@ Each of these is a guess that is easy to change; the file to change is named.
 ## Spike items from #9 (still needed from real Studio and the D200X)
 
 - [ ] Raw logged events for a press, a hold, a dial turn and a hold-rotate (needed for #13)
-- [ ] Ulanzi Studio plugin folder location on macOS and Windows
+- [ ] Ulanzi Studio plugin folder location on macOS and Windows. Likely `<data root>/Plugins/` (bundled
+      plugins are in `System/Plugins/`); data root is `%APPDATA%\Ulanzi\UlanziDeck` on Windows and,
+      unverified, `~/Library/Application Support/Ulanzi/UlanziDeck` on macOS. Run the ulanzi-deck skill's
+      `state` command on the hardware machine to print the real data folder, then confirm `Plugins/`.
 - [ ] Any finding that contradicts the click/hold split
 
 ## Other manual checks
 
 - [ ] Windows: `npm run dev` symlinks need Developer Mode or admin; confirm or switch to a junction
-- [ ] macOS and Windows: Studio launches `plugin/app.js` with its bundled Node (20.x)
+- [ ] macOS and Windows: Studio launches `plugin/app.js` with its bundled Node (20.x). Studio ships its own
+      Node (Windows: `<install dir>\nodejs\node.exe`); run `-v` on it to confirm the version.
+- [ ] Page and folder switching: opening a folder (`page.folder`), going back, and next/prev page all send
+      `setactive false` for a held key, which then stops. (Folder sub-pages are not in the profile's page list.)
+- [ ] After placing our keys in a profile, `export` it with the ulanzi-deck skill and check each key's
+      `ActionParam` holds its direction, speed and watchdog, and that `ViewParam` has two entries (Normal, Disconnected).
+      Check the OBS password is not in any profile file (it should only be encrypted in global settings).
+- [ ] Dial key ids and the Encoder controller's action format are unverified for the D200X (skill treats
+      D200X/Dial as read-only); capture them as part of #9.
+- [ ] macOS minimum is 12 in the manifest (the skill says Studio supports macOS 12+). Issue #1 still says 10.11.
 
 ## Loading the plugin into Ulanzi Studio
 
-- Where it goes: I don't know Studio's plugin folder. The SDK docs don't say, Studio isn't installed here, and finding it is one of the #9 items, so I won't guess.
+- Where it goes: not confirmed (a #9 item). Best guess is `<Studio data root>/Plugins/`; see the spike item above.
 - Finding it: on the hardware machine, install any plugin from the Store, then search for its folder. On macOS use find \~/Library -name "\*.ulanziPlugin" -maxdepth 6. On Windows use dir /s /b %APPDATA%\\\*.ulanziPlugin. Its parent folder is the plugins folder.
 - Linking: run ULANZI\_PLUGINS\_DIR=&lt;that folder&gt; npm run dev (Windows: set the variable first), then restart Studio. Windows symlinks need Developer Mode or admin rights; if that fails I can switch the script to a junction.
 - Fallback: if the symlink isn't picked up, copy the com.ulanzi.obsptz.ulanziPlugin folder in after npm run build. npm run package makes a release zip, but I don't know whether Studio can import one outside the Store. Check for an import option and tell me.
