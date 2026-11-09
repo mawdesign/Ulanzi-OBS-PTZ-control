@@ -2,7 +2,7 @@
 // Studio events in (fake Studio) -> main service -> obs-ptz vendor requests out (fake OBS).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { startRig } from './support/rig.js';
+import { startRig, stored } from './support/rig.js';
 import { waitFor, settle } from './support/wait.js';
 
 test('Stop key press sends ptz_stop to the selected camera', async (t) => {
@@ -63,7 +63,7 @@ test('Test connection reports an unreachable OBS', async (t) => {
 test('wrong password: no stop is sent and the key shows an alert', async (t) => {
   const rig = await startRig({
     obsPassword: 's3cret',
-    settings: (base) => ({ ...base, password: 'wrong' }),
+    settings: (base) => stored({ ...base, password: 'wrong' }),
     connectObs: false,
   });
   t.after(() => rig.stop());

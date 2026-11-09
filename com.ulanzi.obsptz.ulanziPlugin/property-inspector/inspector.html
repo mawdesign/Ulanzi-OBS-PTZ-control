@@ -10,6 +10,7 @@
   <script src="../libs/js/ulanziApi.js"></script>
   <style>
     #test-result { margin-top: 6px; min-height: 1.2em; }
+    #password-note { margin-top: 4px; opacity: 0.7; }
     #test-result.ok { color: #4caf50; }
     #test-result.fail { color: #f44336; }
   </style>
@@ -32,9 +33,11 @@
       <div class="uspi-item">
         <div class="uspi-item-label">Password</div>
         <input type="password" class="uspi-item-value" name="password" autocomplete="off">
+        <div id="password-note"></div>
       </div>
       <div class="uspi-item">
         <button type="button" id="test">Test connection</button>
+        <button type="button" id="clear-password" hidden>Remove saved password</button>
         <div id="test-result" role="status"></div>
       </div>
     </form>
@@ -57,12 +60,27 @@
       $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
     });
 
-    // Connection settings are global: shared by every action of the plugin.
+    // Connection settings are global. The password is write-only: it goes to the main service, which
+    // stores it encrypted; the inspector only learns whether one is saved.
+    const passwordInput = connForm.elements.password;
+    const passwordNote = document.getElementById('password-note');
+    const clearButton = document.getElementById('clear-password');
+
     $UD.onConnected(() => $UD.getGlobalSettings());
     $UD.onDidReceiveGlobalSettings((message) => {
-      if (message.settings) Utils.setFormValue(message.settings, '#connection');
+      const s = message.settings || {};
+      Utils.setFormValue({ host: s.host ?? '', port: s.port ?? '' }, '#connection');
+      const saved = Boolean(s.passwordEnc || s.password);
+      passwordInput.value = '';
+      passwordNote.textContent = saved ? 'A password is saved. Type here to replace it.' : '';
+      clearButton.hidden = !saved;
     });
-    connForm.addEventListener('change', () => $UD.setGlobalSettings(readConnection()));
+    connForm.addEventListener('change', () => {
+      $UD.sendToPlugin({ type: 'saveConnection', settings: readConnection() });
+    });
+    clearButton.addEventListener('click', () => {
+      $UD.sendToPlugin({ type: 'saveConnection', settings: { ...readConnection(), password: '', clearPassword: true } });
+    });
 
     // Test connection: the main service owns the OBS socket, so ask it.
     document.getElementById('test').addEventListener('click', () => {

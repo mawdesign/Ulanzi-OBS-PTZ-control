@@ -3,6 +3,7 @@
 // requests and Studio commands out) is an implementation detail.
 import { UlanziApi } from '../vendor/ulanzi-api/index.js';
 import { ObsClient, PtzError, DEFAULT_REQUEST_TIMEOUT_MS } from './obs-client.js';
+import { encryptSecret, decryptSecret, defaultKeyMaterial } from './secret.js';
 
 export const MAIN_UUID = 'com.ulanzi.ulanzistudio.obsptz';
 const ACTION_PREFIX = `${MAIN_UUID}.`;
@@ -20,14 +21,27 @@ export function normalizeConnection(raw) {
   };
 }
 
+/** Shape stored in Studio's global settings: the password only ever appears encrypted. */
+const toStored = (conn, keyMaterial) => ({
+  host: conn.host,
+  port: conn.port,
+  passwordEnc: conn.password ? encryptSecret(conn.password, keyMaterial) : '',
+});
+
 const sameConnection = (a, b) => a && b && a.host === b.host && a.port === b.port && a.password === b.password;
 
 /**
  * Start the main service.
- * @param {{ port?: number, address?: string, requestTimeoutMs?: number }} [opts]
+ * @param {{ port?: number, address?: string, requestTimeoutMs?: number, keyMaterial?: string }} [opts]
  *   port/address default to the values Ulanzi Studio passes on the command line.
+ *   keyMaterial overrides the machine-derived key used to protect the stored password (tests).
  */
-export function startService({ port, address, requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS } = {}) {
+export function startService({
+  port,
+  address,
+  requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  keyMaterial = defaultKeyMaterial(),
+} = {}) {
   const $UD = new UlanziApi();
 
   // --- logging: Studio's log channel. Debug is opt-in; secrets are never passed in. ---
@@ -105,9 +119,46 @@ export function startService({ port, address, requestTimeoutMs = DEFAULT_REQUEST
     if (inst.kind === 'stop') callPtz(msg.context, 'ptz_stop', { device: targetDevice(inst) });
   }
 
+  // --- connection settings ---
+  /** Turn global settings from Studio into a usable connection. `legacy` = plaintext password found. */
+  function resolveConnection(raw) {
+    const s = raw && typeof raw === 'object' ? raw : {};
+    let password = '';
+    let legacy = false;
+    if (typeof s.passwordEnc === 'string' && s.passwordEnc) {
+      try {
+        password = decryptSecret(s.passwordEnc, keyMaterial);
+      } catch {
+        log('warn', 'The stored OBS password could not be decrypted (different machine or user?). Please re-enter it.');
+      }
+    } else if (typeof s.password === 'string' && s.password) {
+      password = s.password;
+      legacy = true;
+    }
+    return { conn: normalizeConnection({ ...s, password }), legacy };
+  }
+
+  async function applyConnection(next) {
+    if (sameConnection(connection, next)) return;
+    await resetConnection(next);
+    ensureConnected().catch(() => {}); // failure is logged; later presses retry
+  }
+
+  /** The inspector saves here (not straight to Studio) so the password is encrypted before storage. */
+  async function saveConnection(raw) {
+    const s = raw && typeof raw === 'object' ? raw : {};
+    const typed = typeof s.password === 'string' ? s.password : '';
+    const password = s.clearPassword ? '' : typed || connection?.password || '';
+    const next = normalizeConnection({ host: s.host, port: s.port, password });
+    $UD.setGlobalSettings(toStored(next, keyMaterial));
+    await applyConnection(next);
+  }
+
   // --- inspector requests ---
   async function testConnection(context, rawSettings) {
-    const conn = normalizeConnection(rawSettings);
+    const typed = typeof rawSettings?.password === 'string' ? rawSettings.password : '';
+    // A blank password field means "the saved one".
+    const conn = normalizeConnection({ ...rawSettings, password: typed || connection?.password || '' });
     const client = new ObsClient({ requestTimeoutMs });
     let result;
     try {
@@ -124,6 +175,7 @@ export function startService({ port, address, requestTimeoutMs = DEFAULT_REQUEST
   function onSendToPlugin(msg) {
     const payload = msg.payload;
     if (payload?.type === 'testConnection') testConnection(msg.context, payload.settings);
+    else if (payload?.type === 'saveConnection') saveConnection(payload.settings);
   }
 
   // --- Studio events ---
@@ -147,10 +199,9 @@ export function startService({ port, address, requestTimeoutMs = DEFAULT_REQUEST
   $UD.onSendToPlugin((m) => (trace('sendToPlugin', m), onSendToPlugin(m)));
   $UD.onDidReceiveGlobalSettings(async (m) => {
     trace('didReceiveGlobalSettings', m);
-    const next = normalizeConnection(m.settings);
-    if (sameConnection(connection, next)) return;
-    await resetConnection(next);
-    ensureConnected().catch(() => {}); // failure is logged; later presses retry
+    const { conn, legacy } = resolveConnection(m.settings);
+    if (legacy) $UD.setGlobalSettings(toStored(conn, keyMaterial)); // scrub plaintext from storage
+    await applyConnection(conn);
   });
   // Trace-only events (debug): kept so real Studio behaviour can be recorded for the spike findings.
   $UD.onKeyDown((m) => trace('keydown', m));

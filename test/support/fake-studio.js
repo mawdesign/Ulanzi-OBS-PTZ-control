@@ -35,6 +35,7 @@ export class FakeStudio {
     }
     if (msg.code !== undefined) return; // ack of one of our messages
     this.sent.push(msg);
+    if (msg.cmd === 'setGlobalSettings') this.globalSettings = msg.settings;
     if (msg.cmd === 'getGlobalSettings') {
       ws.send(JSON.stringify({ cmd: 'didReceiveGlobalSettings', uuid: MAIN_UUID, actionid: '', key: '', settings: this.globalSettings }));
     }
