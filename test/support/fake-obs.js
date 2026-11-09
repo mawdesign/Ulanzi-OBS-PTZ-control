@@ -7,6 +7,11 @@ import { createHash, randomBytes } from 'node:crypto';
 const sha256b64 = (s) => createHash('sha256').update(s).digest('base64');
 
 // obs-websocket v5 op codes / close codes
+/** What a fully capable camera reports. */
+export const FULL_FEATURES = {
+  pan: true, tilt: true, zoom: true, pan_abs: true, tilt_abs: true, zoom_abs: true, home: true, presets: true,
+};
+
 const OP = { Hello: 0, Identify: 1, Identified: 2, Request: 6, RequestResponse: 7 };
 const CLOSE_AUTH_FAILED = 4009;
 
@@ -26,6 +31,10 @@ export class FakeObs {
       { device: 'cam-uuid-1', name: 'Camera 1', source: 'Cam1', api: { major: 0, minor: 10 } },
       { device: 'cam-uuid-2', name: 'Camera 2', source: 'Cam2', api: { major: 0, minor: 10 } },
     ];
+    /** device uuid -> features the camera reports (true = has it) */
+    this.features = new Map(this.devices.map((d) => [d.device, { ...FULL_FEATURES }]));
+    /** device uuid -> ordered presets [{ id, name }] */
+    this.presets = new Map(this.devices.map((d) => [d.device, []]));
     this.selected = 'cam-uuid-1'; // null => no_selection
     this.silent = new Set(); // request types that never get an answer (timeout tests)
     this.#installDefaults();
@@ -33,13 +42,59 @@ export class FakeObs {
 
   #installDefaults() {
     this.handlers.set('ptz_stop', () => ({}));
+    this.handlers.set('ptz_home_recall', () => ({}));
+    this.handlers.set('ptz_preset_recall', () => ({}));
     this.handlers.set('ptz_list_devices', () => ({ devices: this.devices }));
     this.handlers.set('ptz_get_selected', () => ({ device: this.selected ?? '' }));
+    this.handlers.set('ptz_get_state', (req) => ({ state: { features: this.features.get(this.#uuid(req.device)) } }));
+    this.handlers.set('ptz_preset_get_list', (req) => this.#presetList(this.#uuid(req.device)));
+  }
+
+  #uuid(device) {
+    return device === 'selected' ? this.selected : device;
+  }
+
+  #presetList(uuid) {
+    const list = this.presets.get(uuid) ?? [];
+    return {
+      presets: Object.fromEntries(list.map((p) => [p.id, { name: p.name }])),
+      order: list.map((p) => ({ id: p.id })),
+    };
+  }
+
+  // --- presets and capabilities changed "in OBS" ---
+  addPreset(uuid, preset) {
+    this.presets.get(uuid).push(preset);
+    this.#emitVendor('ptz_preset_added', { device: uuid, id: preset.id });
+  }
+
+  removePreset(uuid, id) {
+    this.presets.set(uuid, this.presets.get(uuid).filter((p) => p.id !== id));
+    this.#emitVendor('ptz_preset_removed', { device: uuid, id });
+  }
+
+  renamePreset(uuid, id, name) {
+    this.presets.get(uuid).find((p) => p.id === id).name = name;
+    this.#emitVendor('ptz_preset_changed', { device: uuid, id, changed: { name } });
+  }
+
+  reorderPresets(uuid, ids) {
+    const byId = new Map(this.presets.get(uuid).map((p) => [p.id, p]));
+    this.presets.set(uuid, ids.map((id) => byId.get(id)));
+    this.#emitVendor('ptz_preset_order_changed', { device: uuid });
+  }
+
+  /** The camera now reports different features. */
+  setFeatures(uuid, features) {
+    this.features.set(uuid, features);
+    this.#emitVendor('ptz_state_changed', { device: uuid, changed: { features } });
   }
 
   // --- changes made "in OBS", announced to subscribed clients as obs-ptz vendor events ---
   addDevice(dev) {
     this.devices.push(dev);
+    this.features.set(dev.device, { ...FULL_FEATURES });
+    this.presets.set(dev.device, []);
     this.#emitVendor('ptz_device_add', { device: dev.device });
   }
 
@@ -153,7 +208,7 @@ export class FakeObs {
     const { vendorName, requestType, requestData = {} } = d.requestData;
     if (vendorName !== 'obs-ptz') return this.#respond(ws, d, false, 600, undefined, 'No such vendor');
     // Camera-discovery calls (list/selected) are bookkeeping; `requests` is the log of control requests.
-    const isBinding = requestType === 'ptz_list_devices' || requestType === 'ptz_get_selected';
+    const isBinding = ['ptz_list_devices', 'ptz_get_selected', 'ptz_get_state', 'ptz_preset_get_list'].includes(requestType);
     (isBinding ? this.discoveryRequests : this.requests).push({ requestType, requestData });
     if (this.silent.has(requestType)) return;
 

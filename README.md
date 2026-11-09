@@ -3,7 +3,7 @@
 Control PTZ cameras from an Ulanzi D200X (and other Ulanzi Deck devices) through
 [OBS-PTZ](https://github.com/glikely/obs-ptz), using the obs-websocket `obs-ptz` vendor API.
 
-**Status:** early development. The Stop key and the OBS connection work; more actions are on the way.
+**Status:** early development. The Stop, Home and Preset keys and the OBS connection work; movement and zoom are on the way.
 
 ## Requirements
 - OBS 28+ (obs-websocket v5) with authentication enabled

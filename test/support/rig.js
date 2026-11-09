@@ -13,12 +13,13 @@ export const stored = ({ host, port, password }) => ({
 });
 
 /**
- * @param {{ obsPassword?: string, settings?: object, requestTimeoutMs?: number, connectObs?: boolean, timers?: object }} [opts]
+ * @param {{ obsPassword?: string, settings?: object, requestTimeoutMs?: number, connectObs?: boolean, timers?: object, setupObs?: (obs: FakeObs) => void }} [opts]
  *   settings: global settings Studio hands the plugin, or a function of the plaintext default
  *   `{host, port, password}` (pointing at the fake OBS) returning them. Default: `stored(default)`.
  */
-export async function startRig({ obsPassword = '', settings, requestTimeoutMs = 5000, connectObs = true, timers } = {}) {
+export async function startRig({ obsPassword = '', settings, requestTimeoutMs = 5000, connectObs = true, timers, setupObs } = {}) {
   const obs = new FakeObs({ password: obsPassword });
+  setupObs?.(obs); // arrange cameras, features and presets before the plugin first reads them
   await obs.start();
   const studio = new FakeStudio();
   await studio.start();

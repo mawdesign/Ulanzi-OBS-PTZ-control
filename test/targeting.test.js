@@ -16,7 +16,7 @@ test('the inspector requests the camera list and receives names and identifiers'
   rig.studio.sendToPlugin(pi, { type: 'getDevices' });
   await waitFor(() => lists(rig, pi).some((p) => p.devices.length === 2), 'camera list');
   const list = last(lists(rig, pi));
-  assert.deepEqual(list.devices, [
+  assert.deepEqual(list.devices.map(({ device, name }) => ({ device, name })), [
     { device: 'cam-uuid-1', name: 'Camera 1' },
     { device: 'cam-uuid-2', name: 'Camera 2' },
   ]);

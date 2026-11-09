@@ -10,7 +10,8 @@
   <script src="../libs/js/ulanziApi.js"></script>
   <style>
     #test-result { margin-top: 6px; min-height: 1.2em; }
-    #password-note, #device-note { margin-top: 4px; opacity: 0.7; }
+    #password-note, #device-note, #target-note { margin-top: 4px; opacity: 0.7; }
+    #target-note { color: #f44336; }
     #test-result.ok { color: #4caf50; }
     #test-result.fail { color: #f44336; }
   </style>
@@ -26,6 +27,11 @@
         </select>
         <div id="device-note"></div>
       </div>
+      <div class="uspi-item" id="preset-row" hidden>
+        <div class="uspi-item-label">Preset</div>
+        <select class="uspi-item-value select" name="preset" id="preset"></select>
+      </div>
+      <div id="target-note" role="status"></div>
     </form>
 
     <div class="uspi-heading">OBS connection</div>
@@ -81,10 +87,39 @@
       deviceNote.textContent = cameras && !cameras.connected ? 'Not connected to OBS, so cameras cannot be listed.' : '';
     }
 
+    // --- Preset (Preset key only): chosen by name, stored by id ---
+    // Studio loads this page with the action's UUID; its last part is the kind of key.
+    const kind = (new URLSearchParams(location.search).get('uuid') || '').split('.').pop();
+    const presetRow = document.getElementById('preset-row');
+    const presetSelect = document.getElementById('preset');
+    const targetNote = document.getElementById('target-note');
+    presetRow.hidden = kind !== 'preset';
+    let savedPreset = '';
+
+    function renderPreset() {
+      const list = cameras?.target?.presets ?? [];
+      presetSelect.textContent = '';
+      presetSelect.add(new Option('Choose a preset', ''));
+      for (const p of list) presetSelect.add(new Option(p.name, p.id));
+      // Never silently drop a saved preset that OBS no longer lists.
+      if (savedPreset && !list.some((p) => p.id === savedPreset)) presetSelect.add(new Option(`Unavailable preset (${savedPreset})`, savedPreset));
+      presetSelect.value = savedPreset;
+    }
+
+    // What the camera this key is set to can do: a message, and the key's own options off when it cannot.
+    function renderTarget() {
+      const target = cameras?.target;
+      targetNote.textContent = target && !target.ok ? target.message : '';
+      presetSelect.disabled = Boolean(target && !target.ok);
+    }
+
     function loadAction(param) {
       Utils.setFormValue(param, '#property-inspector');
       savedDevice = param?.device || 'selected';
+      savedPreset = param?.preset || '';
       renderCameras();
+      renderPreset();
+      renderTarget();
     }
 
     // Per-action settings (Studio stores them and hands them back via add / paramfromapp).
@@ -92,6 +127,7 @@
     $UD.onParamFromApp((message) => loadAction(message.param));
     actionForm.addEventListener('change', () => {
       savedDevice = deviceSelect.value;
+      savedPreset = presetSelect.value;
       $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
     });
 
@@ -131,6 +167,8 @@
       if (p?.type === 'devices') {
         cameras = p;
         renderCameras();
+        renderPreset();
+        renderTarget();
       } else if (p?.type === 'testConnectionResult') {
         result.className = p.ok ? 'ok' : 'fail';
         result.textContent = p.message;

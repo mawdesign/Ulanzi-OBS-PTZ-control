@@ -63,22 +63,22 @@ export class FakeStudio {
     return ctx(a);
   }
 
-  #target(context) {
+  target(context) {
     const [uuid, key, actionid] = context.split('___');
     return { uuid, key, actionid };
   }
 
   run(context) {
-    this.push({ cmd: 'run', ...this.#target(context) });
+    this.push({ cmd: 'run', ...this.target(context) });
   }
 
   clear(...contexts) {
-    this.push({ cmd: 'clear', param: contexts.map((c) => this.#target(c)) });
+    this.push({ cmd: 'clear', param: contexts.map((c) => this.target(c)) });
   }
 
   /** Inspector → plugin pass-through. */
   sendToPlugin(context, payload) {
-    this.push({ cmd: 'sendToPlugin', ...this.#target(context), payload });
+    this.push({ cmd: 'sendToPlugin', ...this.target(context), payload });
   }
 
   /** The key state (0 normal, 1 disconnected) last set for a context, or undefined. */
