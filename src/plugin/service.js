@@ -67,6 +67,10 @@ export function startService({
   let retryTimer = null; // pending reconnect
   let backoffMs = MIN_BACKOFF_MS;
   let stopped = false;
+  /** @type {Map<string, { device: string, name: string }>} cameras OBS-PTZ knows about */
+  let devices = new Map();
+  let selectedDevice = ''; // uuid of the camera selected in the PTZ dock, or ''
+  const inspectors = new Set(); // contexts of inspectors that asked for the camera list
 
   const kindOf = (actionUuid) => (actionUuid?.startsWith(ACTION_PREFIX) ? actionUuid.slice(ACTION_PREFIX.length) : null);
 
@@ -81,6 +85,40 @@ export function startService({
   const isConnected = () => Boolean(obs?.connected);
   const showState = (context) => $UD.setStateIcon(context, isConnected() ? STATE_NORMAL : STATE_DISCONNECTED);
   const showAllStates = () => instances.forEach((_, context) => showState(context));
+
+  // --- cameras ---
+  const devicesPayload = () => ({
+    type: 'devices',
+    connected: isConnected(),
+    selected: selectedDevice,
+    devices: [...devices.values()].map(({ device, name }) => ({ device, name })),
+  });
+
+  function pushDevices(context) {
+    const payload = devicesPayload();
+    for (const c of context ? [context] : inspectors) $UD.sendToPropertyInspector(payload, c);
+  }
+
+  /** Read the camera list and selection. Signals are subscribed first, as the OBS-PTZ API advises. */
+  async function refreshDevices(client) {
+    try {
+      const list = await client.call('ptz_list_devices');
+      const sel = await client.call('ptz_get_selected');
+      devices = new Map((list.devices ?? []).map((d) => [d.device, d]));
+      selectedDevice = typeof sel.device === 'string' ? sel.device : '';
+    } catch (err) {
+      log('warn', `Could not read the camera list: ${err.message}`);
+    }
+    pushDevices();
+  }
+
+  function onPtzEvent(client, type, data) {
+    if (type === 'ptz_device_add') return void refreshDevices(client);
+    if (type === 'ptz_device_remove') devices.delete(data.device);
+    else if (type === 'ptz_selected_changed') selectedDevice = typeof data.device === 'string' ? data.device : '';
+    else return;
+    pushDevices();
+  }
 
   // --- OBS connection ---
   function cancelRetry() {
@@ -127,15 +165,20 @@ export function startService({
         }
         obs = client;
         backoffMs = MIN_BACKOFF_MS;
+        client.on('ptzEvent', (type, data) => onPtzEvent(client, type, data));
         client.on('disconnected', () => {
           if (obs !== client) return;
           obs = null;
           log('warn', 'Lost the connection to OBS');
+          devices = new Map();
+          selectedDevice = '';
           showAllStates();
+          pushDevices();
           scheduleReconnect();
         });
         log('info', `Connected to OBS at ${conn.host}:${conn.port}`);
         showAllStates();
+        refreshDevices(client);
         return client;
       })
       .catch((err) => {
@@ -225,7 +268,10 @@ export function startService({
 
   function onSendToPlugin(msg) {
     const payload = msg.payload;
-    if (payload?.type === 'testConnection') testConnection(msg.context, payload.settings);
+    if (payload?.type === 'getDevices') {
+      inspectors.add(msg.context);
+      pushDevices(msg.context);
+    } else if (payload?.type === 'testConnection') testConnection(msg.context, payload.settings);
     else if (payload?.type === 'saveConnection') saveConnection(payload.settings);
   }
 
@@ -244,7 +290,10 @@ export function startService({
   $UD.onParamFromApp((m) => (trace('paramfromapp', m), setInstance(m)));
   $UD.onClear((m) => {
     trace('clear', m);
-    for (const item of m.param ?? []) instances.delete(item.context);
+    for (const item of m.param ?? []) {
+      instances.delete(item.context);
+      inspectors.delete(item.context);
+    }
   });
   $UD.onRun((m) => (trace('run', m), onRun(m)));
   $UD.onSendToPlugin((m) => (trace('sendToPlugin', m), onSendToPlugin(m)));

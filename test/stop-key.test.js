@@ -134,9 +134,9 @@ test('two Stop keys are independent; removing one does not affect the other', as
 test('a key pinned to a camera sends its requests to that camera', async (t) => {
   const rig = await startRig();
   t.after(() => rig.stop());
-  const stop = rig.studio.add('stop', { param: { device: 'cam-uuid-9' } });
+  const stop = rig.studio.add('stop', { param: { device: 'cam-uuid-2' } });
 
   rig.studio.run(stop);
   await waitFor(() => rig.obs.requests.length === 1, 'request');
-  assert.equal(rig.obs.requests[0].requestData.device, 'cam-uuid-9');
+  assert.equal(rig.obs.requests[0].requestData.device, 'cam-uuid-2');
 });

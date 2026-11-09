@@ -10,15 +10,23 @@
   <script src="../libs/js/ulanziApi.js"></script>
   <style>
     #test-result { margin-top: 6px; min-height: 1.2em; }
-    #password-note { margin-top: 4px; opacity: 0.7; }
+    #password-note, #device-note { margin-top: 4px; opacity: 0.7; }
     #test-result.ok { color: #4caf50; }
     #test-result.fail { color: #f44336; }
   </style>
 </head>
 <body>
   <div class="uspi-wrapper">
-    <!-- Per-action options (camera, direction, speed, ...) land here with the feature tickets. -->
-    <form id="property-inspector"></form>
+    <!-- Per-action options. More (direction, speed, preset, ...) land here with the feature tickets. -->
+    <form id="property-inspector">
+      <div class="uspi-item">
+        <div class="uspi-item-label">Camera</div>
+        <select class="uspi-item-value select" name="device" id="device">
+          <option value="selected">Follow the selected camera</option>
+        </select>
+        <div id="device-note"></div>
+      </div>
+    </form>
 
     <div class="uspi-heading">OBS connection</div>
     <form id="connection" autocomplete="off">
@@ -53,10 +61,37 @@
 
     const readConnection = () => Utils.getFormValue('#connection');
 
+    // --- Camera: follow the camera selected in the OBS PTZ dock (default) or pin to one ---
+    const deviceSelect = document.getElementById('device');
+    const deviceNote = document.getElementById('device-note');
+    let savedDevice = 'selected';
+    let cameras = null; // last camera list from the main service
+
+    function renderCameras() {
+      deviceSelect.textContent = '';
+      const add = (value, label) => deviceSelect.add(new Option(label, value));
+      const sel = cameras?.devices.find((d) => d.device === cameras.selected);
+      add('selected', sel ? `Follow the selected camera (${sel.name})` : 'Follow the selected camera');
+      for (const d of cameras?.devices ?? []) add(d.device, d.name);
+      // Never silently drop a saved camera that OBS does not currently list.
+      if (savedDevice !== 'selected' && !(cameras?.devices ?? []).some((d) => d.device === savedDevice)) {
+        add(savedDevice, `Unavailable camera (${savedDevice.slice(0, 8)}…)`);
+      }
+      deviceSelect.value = savedDevice;
+      deviceNote.textContent = cameras && !cameras.connected ? 'Not connected to OBS, so cameras cannot be listed.' : '';
+    }
+
+    function loadAction(param) {
+      Utils.setFormValue(param, '#property-inspector');
+      savedDevice = param?.device || 'selected';
+      renderCameras();
+    }
+
     // Per-action settings (Studio stores them and hands them back via add / paramfromapp).
-    $UD.onAdd((message) => Utils.setFormValue(message.param, '#property-inspector'));
-    $UD.onParamFromApp((message) => Utils.setFormValue(message.param, '#property-inspector'));
+    $UD.onAdd((message) => loadAction(message.param));
+    $UD.onParamFromApp((message) => loadAction(message.param));
     actionForm.addEventListener('change', () => {
+      savedDevice = deviceSelect.value;
       $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
     });
 
@@ -66,7 +101,10 @@
     const passwordNote = document.getElementById('password-note');
     const clearButton = document.getElementById('clear-password');
 
-    $UD.onConnected(() => $UD.getGlobalSettings());
+    $UD.onConnected(() => {
+      $UD.getGlobalSettings();
+      $UD.sendToPlugin({ type: 'getDevices' });
+    });
     $UD.onDidReceiveGlobalSettings((message) => {
       const s = message.settings || {};
       Utils.setFormValue({ host: s.host ?? '', port: s.port ?? '' }, '#connection');
@@ -90,9 +128,13 @@
     });
     $UD.onSendToPropertyInspector((message) => {
       const p = message.payload;
-      if (p?.type !== 'testConnectionResult') return;
-      result.className = p.ok ? 'ok' : 'fail';
-      result.textContent = p.message;
+      if (p?.type === 'devices') {
+        cameras = p;
+        renderCameras();
+      } else if (p?.type === 'testConnectionResult') {
+        result.className = p.ok ? 'ok' : 'fail';
+        result.textContent = p.message;
+      }
     });
   </script>
 </body>

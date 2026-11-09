@@ -29,6 +29,10 @@ export class ObsClient extends EventEmitter {
       if (was) this.emit('disconnected');
     });
     this.obs.on('ConnectionError', () => {});
+    // obs-ptz signals arrive as VendorEvents: forward them as ('ptzEvent', signalName, data).
+    this.obs.on('VendorEvent', (e) => {
+      if (e?.vendorName === VENDOR_NAME) this.emit('ptzEvent', e.eventType, e.eventData ?? {});
+    });
   }
 
   /** @param {{ host: string, port: number, password?: string }} conn */

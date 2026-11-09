@@ -16,10 +16,16 @@ export class FakeObs {
     this.password = password;
     /** vendor requests received, in order: { requestType, requestData } */
     this.requests = [];
+    /** ptz_list_devices / ptz_get_selected calls, kept apart from control requests */
+    this.discoveryRequests = [];
     /** identify payloads received (eventSubscriptions etc.) */
     this.identifies = [];
     this.handlers = new Map();
     this.sockets = new Set();
+    this.devices = [
+      { device: 'cam-uuid-1', name: 'Camera 1', source: 'Cam1', api: { major: 0, minor: 10 } },
+      { device: 'cam-uuid-2', name: 'Camera 2', source: 'Cam2', api: { major: 0, minor: 10 } },
+    ];
     this.selected = 'cam-uuid-1'; // null => no_selection
     this.silent = new Set(); // request types that never get an answer (timeout tests)
     this.#installDefaults();
@@ -27,6 +33,43 @@ export class FakeObs {
 
   #installDefaults() {
     this.handlers.set('ptz_stop', () => ({}));
+    this.handlers.set('ptz_list_devices', () => ({ devices: this.devices }));
+    this.handlers.set('ptz_get_selected', () => ({ device: this.selected ?? '' }));
+  }
+
+  // --- changes made "in OBS", announced to subscribed clients as obs-ptz vendor events ---
+  addDevice(dev) {
+    this.devices.push(dev);
+    this.#emitVendor('ptz_device_add', { device: dev.device });
+  }
+
+  removeDevice(uuid) {
+    this.devices = this.devices.filter((d) => d.device !== uuid);
+    if (this.selected === uuid) this.selected = null;
+    this.#emitVendor('ptz_device_remove', { device: uuid });
+  }
+
+  select(uuid) {
+    this.selected = uuid;
+    this.#emitVendor('ptz_selected_changed', { device: uuid ?? '' });
+  }
+
+  #emitVendor(eventType, eventData) {
+    const OP_EVENT = 5;
+    const VENDORS = 1 << 9;
+    for (const ws of this.sockets) {
+      if (!(ws.eventSubscriptions & VENDORS)) continue; // only clients that asked for vendor events
+      ws.send(
+        JSON.stringify({
+          op: OP_EVENT,
+          d: {
+            eventType: 'VendorEvent',
+            eventIntent: VENDORS,
+            eventData: { vendorName: 'obs-ptz', eventType, eventData },
+          },
+        }),
+      );
+    }
   }
 
   /** Register a handler `(requestData) => responseData` for a vendor request type. */
@@ -82,6 +125,7 @@ export class FakeObs {
           if (msg.d.authentication !== expected) return ws.close(CLOSE_AUTH_FAILED, 'Authentication failed.');
         }
         this.identifies.push(msg.d);
+        ws.eventSubscriptions = msg.d.eventSubscriptions ?? 0;
         identified = true;
         ws.send(JSON.stringify({ op: OP.Identified, d: { negotiatedRpcVersion: 1 } }));
       } else if (msg.op === OP.Request && identified) {
@@ -108,7 +152,9 @@ export class FakeObs {
     if (d.requestType !== 'CallVendorRequest') return this.#respond(ws, d, false, 204, undefined, 'Unknown request');
     const { vendorName, requestType, requestData = {} } = d.requestData;
     if (vendorName !== 'obs-ptz') return this.#respond(ws, d, false, 600, undefined, 'No such vendor');
-    this.requests.push({ requestType, requestData });
+    // Camera-discovery calls (list/selected) are bookkeeping; `requests` is the log of control requests.
+    const isBinding = requestType === 'ptz_list_devices' || requestType === 'ptz_get_selected';
+    (isBinding ? this.discoveryRequests : this.requests).push({ requestType, requestData });
     if (this.silent.has(requestType)) return;
 
     const wrap = (inner) => this.#respond(ws, d, true, 100, { vendorName, requestType, responseData: inner });
@@ -116,6 +162,9 @@ export class FakeObs {
     // OBS-PTZ failures are reported in the response data, not as an obs-websocket failure.
     if (requestData.device === 'selected' && this.selected == null) {
       return wrap({ error: 'no_selection', message: 'No camera is selected in the PTZ dock' });
+    }
+    if (!isBinding && requestData.device !== 'selected' && !this.devices.some((d) => d.device === requestData.device)) {
+      return wrap({ error: 'unknown_device', message: `No PTZ device ${requestData.device}` });
     }
     const handler = this.handlers.get(requestType);
     if (!handler) return wrap({ error: 'no_such_proc', message: `No proc ${requestType}` });
