@@ -72,6 +72,25 @@ export class FakeStudio {
     this.push({ cmd: 'run', ...this.target(context) });
   }
 
+  keyDown(context) {
+    this.push({ cmd: 'keydown', ...this.target(context) });
+  }
+
+  keyUp(context) {
+    this.push({ cmd: 'keyup', ...this.target(context) });
+  }
+
+  /** Studio switching pages or profiles away from (false) or back to (true) a key. */
+  setActive(context, active) {
+    this.push({ cmd: 'setactive', ...this.target(context), active });
+  }
+
+  /** The image path last set on a key with setPathIcon, or undefined. */
+  pathIconOf(context) {
+    const item = (m) => m.param.statelist[0];
+    return this.sent.filter((m) => m.cmd === 'state' && ctx(item(m)) === context && item(m).type === 2).map((m) => item(m).path).at(-1);
+  }
+
   clear(...contexts) {
     this.push({ cmd: 'clear', param: contexts.map((c) => this.target(c)) });
   }

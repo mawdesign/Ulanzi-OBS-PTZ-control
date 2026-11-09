@@ -4,6 +4,7 @@
 import { UlanziApi } from '../vendor/ulanzi-api/index.js';
 import { ObsClient, PtzError, DEFAULT_REQUEST_TIMEOUT_MS } from './obs-client.js';
 import { encryptSecret, decryptSecret, defaultKeyMaterial } from './secret.js';
+import { HOLD_KINDS, holdSpec, requiredHoldFeatures } from './motion.js';
 
 export const MAIN_UUID = 'com.ulanzi.ulanzistudio.obsptz';
 const ACTION_PREFIX = `${MAIN_UUID}.`;
@@ -20,8 +21,14 @@ export const isSupportedApi = (api) => Boolean(api) && api.major === API_MAJOR &
 
 /** What a camera must report in `features` for each kind of key (Stop needs nothing). */
 const PRESET_SIGNALS = new Set(['ptz_preset_added', 'ptz_preset_removed', 'ptz_preset_changed', 'ptz_preset_order_changed', 'ptz_preset_list_reset']);
-const REQUIRED_FEATURE = { home: 'home', preset: 'presets' };
-const FEATURE_LABEL = { home: 'a home position', presets: 'presets' };
+const FEATURE_LABEL = { home: 'a home position', presets: 'presets', pan: 'panning', tilt: 'tilting', zoom: 'zooming' };
+/** Features a key needs from its camera, in the order they are checked. */
+const requiredFeatures = (inst) => {
+  if (inst.kind === 'home') return ['home'];
+  if (inst.kind === 'preset') return ['presets'];
+  if (HOLD_KINDS.has(inst.kind)) return requiredHoldFeatures(holdSpec(inst.kind, inst.params));
+  return [];
+};
 
 export const DEFAULT_CONNECTION = Object.freeze({ host: 'localhost', port: 4455, password: '' });
 
@@ -99,7 +106,13 @@ export function startService({
 
   // --- key state: Normal while connected to OBS, Disconnected otherwise ---
   const isConnected = () => Boolean(obs?.connected);
-  const showState = (context) => $UD.setStateIcon(context, isConnected() ? STATE_NORMAL : STATE_DISCONNECTED);
+  const showState = (context) => {
+    const inst = instances.get(context);
+    if (!isConnected()) return $UD.setStateIcon(context, STATE_DISCONNECTED);
+    // Move and Zoom keys show an arrow for their direction; the others use the manifest's Normal image.
+    if (inst && HOLD_KINDS.has(inst.kind)) return $UD.setPathIcon(context, holdSpec(inst.kind, inst.params).icon);
+    $UD.setStateIcon(context, STATE_NORMAL);
+  };
   const showAllStates = () => instances.forEach((_, context) => showState(context));
 
   // --- cameras ---
@@ -121,8 +134,8 @@ export function startService({
       const v = dev.api ? `${dev.api.major}.${dev.api.minor}` : 'unknown';
       return { ok: false, message: `${dev.name} implements OBS-PTZ API ${v}. This plugin needs ${API_MAJOR}.${API_MIN_MINOR} or a newer ${API_MAJOR}.x.` };
     }
-    const need = REQUIRED_FEATURE[inst.kind];
-    if (need && !features.get(uuid)?.[need]) return { ok: false, message: `${dev.name} does not support ${FEATURE_LABEL[need]}.` };
+    const missing = requiredFeatures(inst).find((need) => !features.get(uuid)?.[need]);
+    if (missing) return { ok: false, message: `${dev.name} does not support ${FEATURE_LABEL[missing]}.` };
     return { ok: true, message: '' };
   }
 
@@ -207,6 +220,7 @@ export function startService({
   }
 
   async function resetConnection(next) {
+    await releaseAll(); // while the old connection can still carry the stops
     const old = obs;
     obs = null;
     connecting = null;
@@ -249,6 +263,7 @@ export function startService({
           if (obs !== client) return;
           obs = null;
           log('warn', 'Lost the connection to OBS');
+          dropHolds();
           devices = new Map();
           features = new Map();
           presets = new Map();
@@ -259,7 +274,7 @@ export function startService({
         });
         log('info', `Connected to OBS at ${conn.host}:${conn.port}`);
         showAllStates();
-        cameraData = refreshDevices(client); // presses wait for this (see callPtz), the connection does not
+        cameraData = refreshDevices(client).then(() => settleOwed(client)); // presses wait for this (see callPtz), the connection does not
         return client;
       })
       .catch((err) => {
@@ -291,6 +306,95 @@ export function startService({
       $UD.showAlert(context);
       return null;
     }
+  }
+
+  // --- hold keys (Move, Zoom): a camera must never be left moving ---
+  // Every way a hold can end (key up, page switch, key removed, watchdog, OBS lost, Studio lost,
+  // shutdown, new OBS settings) goes through holdEnd, which zeroes exactly the axes that key drove.
+  /** @type {Map<string, { spec: ReturnType<typeof holdSpec>, device: string, sent: boolean, cancelled: boolean, timer: any, chain: Promise<void> }>} */
+  const held = new Map(); // by Studio context, so duplicate keys are independent
+  const owed = []; // holds whose stop could not reach OBS (it was gone); sent as soon as OBS is back
+
+  function holdStart(context) {
+    const inst = instances.get(context);
+    if (!inst || !HOLD_KINDS.has(inst.kind) || held.has(context)) return; // ignore key auto-repeat
+    const h = { spec: holdSpec(inst.kind, inst.params), device: 'selected', sent: false, cancelled: false, timer: null, chain: Promise.resolve() };
+    held.set(context, h);
+    h.timer = timers.setTimeout(() => {
+      log('warn', `No key up within ${h.spec.watchdogMs / 1000} s: stopping the camera`);
+      holdEnd(context);
+    }, h.spec.watchdogMs);
+    h.chain = sendMove(context, inst, h);
+  }
+
+  async function sendMove(context, inst, h) {
+    try {
+      const client = await ensureConnected();
+      await cameraData;
+      if (h.cancelled) return; // released (or OBS lost) before the move could go out: never send it
+      const check = checkTarget(inst);
+      if (!check.ok) {
+        log('warn', `ptz_move not sent: ${check.message}`);
+        abandon(context, h);
+        return void $UD.showAlert(context);
+      }
+      h.device = targetUuid(inst) || 'selected'; // stop goes to the camera that was moved, even if the selection changes
+      h.sent = true;
+      await client.call('ptz_move', { device: h.device, ...h.spec.start });
+    } catch (err) {
+      log('warn', `ptz_move failed: ${err instanceof PtzError ? err.code : 'error'}: ${err.message}`);
+      if (!h.cancelled) $UD.showAlert(context);
+    }
+  }
+
+  function abandon(context, h) {
+    h.cancelled = true;
+    if (h.timer) timers.clearTimeout(h.timer);
+    h.timer = null;
+    if (held.get(context) === h) held.delete(context);
+  }
+
+  /** Ask a camera to stop the axes of one hold. Falls back to ptz_stop; true if either was accepted. */
+  async function sendStop(client, h) {
+    try {
+      await client.call('ptz_move', { device: h.device, ...h.spec.stop });
+      return true;
+    } catch (err) {
+      log('warn', `Stopping by speed failed (${err.message}); trying ptz_stop`);
+    }
+    try {
+      await client.call('ptz_stop', { device: h.device });
+      return true;
+    } catch (err) {
+      log('error', `Could not stop the camera: ${err.message}`);
+      return false;
+    }
+  }
+
+  /** End one hold. Resolves once the stop has been answered (or could not be sent). */
+  async function holdEnd(context) {
+    const h = held.get(context);
+    if (!h) return;
+    abandon(context, h);
+    await h.chain; // the move, if it is still on its way, goes out first so the stop cannot overtake it
+    if (!h.sent) return;
+    if (obs?.connected) {
+      if (!(await sendStop(obs, h))) $UD.showAlert(context);
+    } else owed.push(h);
+  }
+
+  const releaseAll = () => Promise.all([...held.keys()].map(holdEnd));
+
+  /** OBS went away: nothing can be sent, so remember what is still moving and stop it on return. */
+  function dropHolds() {
+    for (const [context, h] of [...held]) {
+      abandon(context, h);
+      if (h.sent) owed.push(h);
+    }
+  }
+
+  async function settleOwed(client) {
+    for (const h of owed.splice(0)) await sendStop(client, h);
   }
 
   // --- actions ---
@@ -397,6 +501,7 @@ export function startService({
   $UD.onClear((m) => {
     trace('clear', m);
     for (const item of m.param ?? []) {
+      holdEnd(item.context); // a removed key must not leave the camera moving
       instances.delete(item.context);
       inspectors.delete(item.context);
     }
@@ -410,14 +515,20 @@ export function startService({
     await applyConnection(conn);
   });
   // Trace-only events (debug): kept so real Studio behaviour can be recorded for the spike findings.
-  $UD.onKeyDown((m) => trace('keydown', m));
-  $UD.onKeyUp((m) => trace('keyup', m));
-  $UD.onSetActive((m) => trace('setactive', m));
+  $UD.onKeyDown((m) => (trace('keydown', m), holdStart(m.context)));
+  $UD.onKeyUp((m) => (trace('keyup', m), holdEnd(m.context)));
+  $UD.onSetActive((m) => {
+    trace('setactive', m);
+    if (m.active === false || m.active === 0) holdEnd(m.context); // page or profile switched away
+  });
   $UD.onParamFromPlugin((m) => trace('paramfromplugin', m));
   $UD.onDialDown((m) => trace('dialdown', m));
   $UD.onDialUp((m) => trace('dialup', m));
   $UD.onDialRotate((m) => trace('dialrotate', m));
-  $UD.onClose(() => log('warn', 'Disconnected from Ulanzi Studio'));
+  $UD.onClose(() => {
+    log('warn', 'Disconnected from Ulanzi Studio');
+    releaseAll();
+  });
   $UD.onError((e) => log('error', String(e)));
 
   return {

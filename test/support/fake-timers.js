@@ -19,6 +19,20 @@ export function fakeTimers() {
     get pendingCount() {
       return pending.size;
     },
+    /** Delays of the timers still pending, oldest first. */
+    get pendingDelays() {
+      return [...pending.values()].map((t) => t.ms);
+    },
+    /** Run the oldest pending timer that was set for exactly `ms`. Returns false if none was pending. */
+    fireDelay(ms) {
+      for (const [id, t] of pending) {
+        if (t.ms !== ms) continue;
+        pending.delete(id);
+        t.fn();
+        return true;
+      }
+      return false;
+    },
     /** Run the oldest pending timer. Returns false if none was pending. */
     fire() {
       const first = pending.keys().next();

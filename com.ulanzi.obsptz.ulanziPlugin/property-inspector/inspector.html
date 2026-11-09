@@ -27,6 +27,19 @@
         </select>
         <div id="device-note"></div>
       </div>
+      <div class="uspi-item" id="direction-row" hidden>
+        <div class="uspi-item-label">Direction</div>
+        <select class="uspi-item-value select" name="direction" id="direction"></select>
+      </div>
+      <div class="uspi-item" id="speed-row" hidden>
+        <div class="uspi-item-label">Speed (0.1 to 1.0)</div>
+        <input type="number" class="uspi-item-value" name="speed" id="speed" min="0.1" max="1" step="0.1">
+      </div>
+      <div class="uspi-item" id="watchdog-row" hidden>
+        <div class="uspi-item-label">Stop automatically after (seconds)</div>
+        <input type="number" class="uspi-item-value" name="watchdog" id="watchdog" min="1" max="600" step="1">
+        <div id="watchdog-note" style="margin-top:4px;opacity:.7">Safety stop if the key release is never received.</div>
+      </div>
       <div class="uspi-item" id="preset-row" hidden>
         <div class="uspi-item-label">Preset</div>
         <select class="uspi-item-value select" name="preset" id="preset"></select>
@@ -94,6 +107,17 @@
     const presetSelect = document.getElementById('preset');
     const targetNote = document.getElementById('target-note');
     presetRow.hidden = kind !== 'preset';
+
+    // --- Hold keys (Move, Zoom): direction, speed and the watchdog time ---
+    const HOLD_DEFAULTS = { speed: 0.5, watchdog: 10 };
+    const DIRECTIONS = {
+      move: [['n', 'Up (north)'], ['ne', 'Up-right'], ['e', 'Right (east)'], ['se', 'Down-right'], ['s', 'Down (south)'], ['sw', 'Down-left'], ['w', 'Left (west)'], ['nw', 'Up-left']],
+      zoom: [['in', 'Zoom in'], ['out', 'Zoom out']],
+    };
+    const isHold = kind === 'move' || kind === 'zoom';
+    for (const id of ['direction-row', 'speed-row', 'watchdog-row']) document.getElementById(id).hidden = !isHold;
+    const directionSelect = document.getElementById('direction');
+    for (const [value, label] of DIRECTIONS[kind] ?? []) directionSelect.add(new Option(label, value));
     let savedPreset = '';
 
     function renderPreset() {
@@ -114,7 +138,9 @@
     }
 
     function loadAction(param) {
-      Utils.setFormValue(param, '#property-inspector');
+      // A new key has no settings yet: show (and so save) the defaults.
+      const holdDefaults = isHold ? { direction: DIRECTIONS[kind][0][0], ...HOLD_DEFAULTS } : {};
+      Utils.setFormValue({ ...holdDefaults, ...param }, '#property-inspector');
       savedDevice = param?.device || 'selected';
       savedPreset = param?.preset || '';
       renderCameras();

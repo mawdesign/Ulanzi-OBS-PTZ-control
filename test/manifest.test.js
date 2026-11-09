@@ -42,3 +42,9 @@ test('referenced files exist in the plugin folder', async () => {
   }
   for (const p of paths) assert.ok(await exists(p), `missing ${p}`);
 });
+
+test('every Move and Zoom direction has an icon file', async () => {
+  const { PAN_TILT, ZOOM_DIRECTIONS } = await import('../src/plugin/motion.js');
+  for (const d of Object.keys(PAN_TILT)) assert.ok(await exists(`resources/move-${d}.svg`), `move-${d}.svg`);
+  for (const d of Object.keys(ZOOM_DIRECTIONS)) assert.ok(await exists(`resources/zoom-${d}.svg`), `zoom-${d}.svg`);
+});

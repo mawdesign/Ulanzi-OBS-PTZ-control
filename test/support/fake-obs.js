@@ -42,6 +42,7 @@ export class FakeObs {
 
   #installDefaults() {
     this.handlers.set('ptz_stop', () => ({}));
+    this.handlers.set('ptz_move', () => ({}));
     this.handlers.set('ptz_home_recall', () => ({}));
     this.handlers.set('ptz_preset_recall', () => ({}));
     this.handlers.set('ptz_list_devices', () => ({ devices: this.devices }));
