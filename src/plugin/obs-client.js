@@ -37,6 +37,8 @@ export class ObsClient extends EventEmitter {
     await this.obs.connect(`ws://${host}:${port}`, password || undefined, {
       eventSubscriptions: EventSubscription.Vendors,
     });
+    // The socket can close in the instant between identifying and here; that close would be missed.
+    if (!this.obs.identified) throw new PtzError('connection_closed', 'The connection to OBS closed while connecting');
     this.connected = true;
     this.emit('connected');
   }

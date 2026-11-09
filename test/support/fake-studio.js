@@ -81,6 +81,12 @@ export class FakeStudio {
     this.push({ cmd: 'sendToPlugin', ...this.#target(context), payload });
   }
 
+  /** The key state (0 normal, 1 disconnected) last set for a context, or undefined. */
+  stateOf(context) {
+    const item = (m) => m.param.statelist[0];
+    return this.sent.filter((m) => m.cmd === 'state' && ctx(item(m)) === context).map((m) => item(m).state).at(-1);
+  }
+
   /** Messages the plugin sent with the given cmd (optionally for one context). */
   commands(cmd, context) {
     return this.sent.filter((m) => m.cmd === cmd && (!context || ctx(m) === context));

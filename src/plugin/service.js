@@ -8,6 +8,11 @@ import { encryptSecret, decryptSecret, defaultKeyMaterial } from './secret.js';
 export const MAIN_UUID = 'com.ulanzi.ulanzistudio.obsptz';
 const ACTION_PREFIX = `${MAIN_UUID}.`;
 
+export const MIN_BACKOFF_MS = 1000;
+export const MAX_BACKOFF_MS = 30000;
+const STATE_NORMAL = 0;
+const STATE_DISCONNECTED = 1;
+
 export const DEFAULT_CONNECTION = Object.freeze({ host: 'localhost', port: 4455, password: '' });
 
 /** Fill defaults and coerce types for connection settings coming from Studio or the inspector. */
@@ -35,12 +40,14 @@ const sameConnection = (a, b) => a && b && a.host === b.host && a.port === b.por
  * @param {{ port?: number, address?: string, requestTimeoutMs?: number, keyMaterial?: string }} [opts]
  *   port/address default to the values Ulanzi Studio passes on the command line.
  *   keyMaterial overrides the machine-derived key used to protect the stored password (tests).
+ *   timers overrides setTimeout/clearTimeout for reconnect scheduling (tests use a controllable clock).
  */
 export function startService({
   port,
   address,
   requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   keyMaterial = defaultKeyMaterial(),
+  timers = { setTimeout, clearTimeout },
 } = {}) {
   const $UD = new UlanziApi();
 
@@ -57,6 +64,9 @@ export function startService({
   let connection = null; // normalized settings last received from Studio
   let obs = null; // ObsClient for `connection`
   let connecting = null; // in-flight connect promise
+  let retryTimer = null; // pending reconnect
+  let backoffMs = MIN_BACKOFF_MS;
+  let stopped = false;
 
   const kindOf = (actionUuid) => (actionUuid?.startsWith(ACTION_PREFIX) ? actionUuid.slice(ACTION_PREFIX.length) : null);
 
@@ -64,15 +74,41 @@ export function startService({
     const kind = kindOf(msg.uuid);
     if (!kind) return;
     instances.set(msg.context, { kind, params: msg.param && typeof msg.param === 'object' ? msg.param : {} });
+    showState(msg.context);
   }
 
+  // --- key state: Normal while connected to OBS, Disconnected otherwise ---
+  const isConnected = () => Boolean(obs?.connected);
+  const showState = (context) => $UD.setStateIcon(context, isConnected() ? STATE_NORMAL : STATE_DISCONNECTED);
+  const showAllStates = () => instances.forEach((_, context) => showState(context));
+
   // --- OBS connection ---
+  function cancelRetry() {
+    if (retryTimer) timers.clearTimeout(retryTimer);
+    retryTimer = null;
+    backoffMs = MIN_BACKOFF_MS;
+  }
+
   async function resetConnection(next) {
     const old = obs;
     obs = null;
     connecting = null;
     connection = next;
+    cancelRetry();
+    showAllStates();
     if (old) await old.disconnect();
+  }
+
+  /** Retry later, doubling the delay from 1 s up to 30 s. One retry is pending at a time. */
+  function scheduleReconnect() {
+    if (stopped || retryTimer || !connection) return;
+    const delay = backoffMs;
+    backoffMs = Math.min(backoffMs * 2, MAX_BACKOFF_MS);
+    log('info', `Will retry connecting to OBS in ${delay / 1000} s`);
+    retryTimer = timers.setTimeout(() => {
+      retryTimer = null;
+      ensureConnected().catch(() => {});
+    }, delay);
   }
 
   /** Connect with the current settings (shared by concurrent callers). */
@@ -84,12 +120,27 @@ export function startService({
     const attempt = client
       .connect(conn)
       .then(() => {
+        if (connecting !== attempt) {
+          // settings changed or the service stopped while connecting: drop this connection
+          client.disconnect();
+          throw new Error('Connection settings changed while connecting');
+        }
         obs = client;
+        backoffMs = MIN_BACKOFF_MS;
+        client.on('disconnected', () => {
+          if (obs !== client) return;
+          obs = null;
+          log('warn', 'Lost the connection to OBS');
+          showAllStates();
+          scheduleReconnect();
+        });
         log('info', `Connected to OBS at ${conn.host}:${conn.port}`);
+        showAllStates();
         return client;
       })
       .catch((err) => {
         log('warn', `Could not connect to OBS at ${conn.host}:${conn.port}: ${err.message}`);
+        if (connecting === attempt) scheduleReconnect();
         throw err;
       })
       .finally(() => {
@@ -216,6 +267,7 @@ export function startService({
 
   return {
     async stop() {
+      stopped = true;
       await resetConnection(null);
       $UD.websocket?.close();
     },

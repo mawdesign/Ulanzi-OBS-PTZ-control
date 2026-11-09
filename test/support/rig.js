@@ -13,11 +13,11 @@ export const stored = ({ host, port, password }) => ({
 });
 
 /**
- * @param {{ obsPassword?: string, settings?: object, requestTimeoutMs?: number, connectObs?: boolean }} [opts]
+ * @param {{ obsPassword?: string, settings?: object, requestTimeoutMs?: number, connectObs?: boolean, timers?: object }} [opts]
  *   settings: global settings Studio hands the plugin, or a function of the plaintext default
  *   `{host, port, password}` (pointing at the fake OBS) returning them. Default: `stored(default)`.
  */
-export async function startRig({ obsPassword = '', settings, requestTimeoutMs = 5000, connectObs = true } = {}) {
+export async function startRig({ obsPassword = '', settings, requestTimeoutMs = 5000, connectObs = true, timers } = {}) {
   const obs = new FakeObs({ password: obsPassword });
   await obs.start();
   const studio = new FakeStudio();
@@ -25,7 +25,7 @@ export async function startRig({ obsPassword = '', settings, requestTimeoutMs = 
   const base = { host: '127.0.0.1', port: obs.port, password: obsPassword };
   studio.globalSettings = typeof settings === 'function' ? settings(base) : (settings ?? stored(base));
 
-  const service = startService({ port: studio.port, address: '127.0.0.1', requestTimeoutMs });
+  const service = startService({ port: studio.port, address: '127.0.0.1', requestTimeoutMs, ...(timers && { timers }) });
   await studio.ready();
   if (connectObs) await waitFor(() => obs.identifies.length > 0, 'plugin to connect to OBS');
 

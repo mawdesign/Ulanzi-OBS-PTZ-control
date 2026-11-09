@@ -34,9 +34,10 @@ export class FakeObs {
     this.handlers.set(requestType, fn);
   }
 
-  async start() {
+  /** Start listening. Pass the previous `port` to bring a stopped OBS back on the same address. */
+  async start(port = 0) {
     this.wss = new WebSocketServer({
-      port: 0,
+      port,
       handleProtocols: (protocols) => (protocols.has('obswebsocket.json') ? 'obswebsocket.json' : false),
     });
     await new Promise((resolve) => this.wss.once('listening', resolve));
@@ -45,8 +46,11 @@ export class FakeObs {
   }
 
   async stop() {
+    if (!this.wss) return;
     for (const ws of this.sockets) ws.terminate();
-    await new Promise((resolve) => this.wss.close(resolve));
+    const wss = this.wss;
+    this.wss = null;
+    await new Promise((resolve) => wss.close(resolve));
   }
 
   /** Drop every client connection (as if OBS crashed or the network blipped). */
