@@ -8,14 +8,34 @@
   <script src="../libs/js/timers.js"></script>
   <script src="../libs/js/utils.js"></script>
   <script src="../libs/js/ulanziApi.js"></script>
+  <style>
+    #test-result { margin-top: 6px; min-height: 1.2em; }
+    #test-result.ok { color: #4caf50; }
+    #test-result.fail { color: #f44336; }
+  </style>
 </head>
 <body>
-  <!-- Placeholder inspector for the event-logging spike. Real fields land with the feature work. -->
   <div class="uspi-wrapper">
-    <form id="property-inspector">
+    <!-- Per-action options (camera, direction, speed, ...) land here with the feature tickets. -->
+    <form id="property-inspector"></form>
+
+    <div class="uspi-heading">OBS connection</div>
+    <form id="connection" autocomplete="off">
       <div class="uspi-item">
-        <div class="uspi-item-label">Note</div>
-        <input type="text" class="uspi-item-value" name="note" value="">
+        <div class="uspi-item-label">Host</div>
+        <input type="text" class="uspi-item-value" name="host" placeholder="localhost">
+      </div>
+      <div class="uspi-item">
+        <div class="uspi-item-label">Port</div>
+        <input type="number" class="uspi-item-value" name="port" placeholder="4455" min="1" max="65535">
+      </div>
+      <div class="uspi-item">
+        <div class="uspi-item-label">Password</div>
+        <input type="password" class="uspi-item-value" name="password" autocomplete="off">
+      </div>
+      <div class="uspi-item">
+        <button type="button" id="test">Test connection</button>
+        <div id="test-result" role="status"></div>
       </div>
     </form>
   </div>
@@ -23,9 +43,38 @@
     // Studio loads this page with ?uuid=&actionid=&key=&port=&address=&controller=&device= ;
     // connect() with no argument reads them, so one shared inspector serves every action.
     $UD.connect();
+
+    const actionForm = document.getElementById('property-inspector');
+    const connForm = document.getElementById('connection');
+    const result = document.getElementById('test-result');
+
+    const readConnection = () => Utils.getFormValue('#connection');
+
+    // Per-action settings (Studio stores them and hands them back via add / paramfromapp).
     $UD.onAdd((message) => Utils.setFormValue(message.param, '#property-inspector'));
-    document.getElementById('property-inspector').addEventListener('change', () => {
+    $UD.onParamFromApp((message) => Utils.setFormValue(message.param, '#property-inspector'));
+    actionForm.addEventListener('change', () => {
       $UD.sendParamFromPlugin(Utils.getFormValue('#property-inspector'));
+    });
+
+    // Connection settings are global: shared by every action of the plugin.
+    $UD.onConnected(() => $UD.getGlobalSettings());
+    $UD.onDidReceiveGlobalSettings((message) => {
+      if (message.settings) Utils.setFormValue(message.settings, '#connection');
+    });
+    connForm.addEventListener('change', () => $UD.setGlobalSettings(readConnection()));
+
+    // Test connection: the main service owns the OBS socket, so ask it.
+    document.getElementById('test').addEventListener('click', () => {
+      result.className = '';
+      result.textContent = 'Testing…';
+      $UD.sendToPlugin({ type: 'testConnection', settings: readConnection() });
+    });
+    $UD.onSendToPropertyInspector((message) => {
+      const p = message.payload;
+      if (p?.type !== 'testConnectionResult') return;
+      result.className = p.ok ? 'ok' : 'fail';
+      result.textContent = p.message;
     });
   </script>
 </body>
